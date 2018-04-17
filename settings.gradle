@@ -1,0 +1,3 @@
+rootProject.name = 'vertx-shell-test'
+include 'mock-in-maven'
+
