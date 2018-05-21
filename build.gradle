@@ -4,7 +4,7 @@ plugins {
     id 'java'
 }
 
-group 'pt.fabm.vertx.shell'
+group 'pt.fabm.vertx.tests'
 version '1.0-SNAPSHOT'
 
 sourceCompatibility = 1.8
@@ -19,6 +19,7 @@ vertx {
 }
 
 dependencies {
+    compile group: 'io.vertx', name: 'vertx-lang-groovy', version: '3.5.1'
     compile 'io.vertx:vertx-maven-service-factory:3.5.1'
     compile group: 'io.vertx', name: 'vertx-shell', version: '3.5.1'
     compile 'io.vertx:vertx-core:3.5.1'

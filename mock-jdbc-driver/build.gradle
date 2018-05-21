@@ -1,0 +1,34 @@
+group 'pt.fabm.vertx.shell'
+version '1.0-SNAPSHOT'
+
+apply plugin: 'groovy'
+apply plugin: 'java'
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    String vertxVersion = '3.5.1'
+
+    testCompile group: 'com.datastax.cassandra', name: 'cassandra-driver-core', version: '3.5.0'
+
+    compile 'ch.qos.logback:logback-core:1.2.3'
+    compile 'org.slf4j:slf4j-api:1.7.18'
+
+    compile "io.vertx:vertx-rx-java2:$vertxVersion"
+    compile "io.vertx:vertx-web:$vertxVersion"
+    compile "io.vertx:vertx-web-client:$vertxVersion"
+    compile "io.vertx:vertx-service-discovery:$vertxVersion"
+    compile "io.vertx:vertx-ignite:$vertxVersion"
+    compile 'org.apache.commons:commons-lang3:3.7'
+    compile "io.vertx:vertx-service-proxy:$vertxVersion"
+    compile "io.vertx:vertx-codegen:$vertxVersion"
+    compile "io.vertx:vertx-service-proxy:$vertxVersion:processor"
+    compile "io.vertx:vertx-core:$vertxVersion"
+    compile 'org.codehaus.groovy:groovy-all:2.3.11'
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+    testCompile project(':discovery')
+}

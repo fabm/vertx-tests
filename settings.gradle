@@ -1,3 +1,9 @@
-rootProject.name = 'vertx-shell-test'
+rootProject.name = 'vertx-tests'
 include 'mock-in-maven'
+include 'jetty-app'
+include 'mock-server'
+include 'mock-jdbc-driver'
+include 'test-mock-driver'
+include 'discovery'
+include 'discoveryClient'
 

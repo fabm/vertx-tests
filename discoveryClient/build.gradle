@@ -1,0 +1,30 @@
+group 'pt.fabm.vertx.tests'
+version '1.0-SNAPSHOT'
+
+apply plugin: 'groovy'
+apply plugin: 'java'
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    def vertxVersion = '3.5.1'
+
+    compile "org.yaml:snakeyaml:1.19"
+
+    compile 'ch.qos.logback:logback-classic:1.2.3'
+    compile 'ch.qos.logback:logback-core:1.2.3'
+    compile 'org.slf4j:slf4j-api:1.7.18'
+
+    compile "io.vertx:vertx-rx-java2:$vertxVersion"
+    compile "io.vertx:vertx-web-client:$vertxVersion"
+    compile "io.vertx:vertx-service-discovery:$vertxVersion"
+    compile 'org.codehaus.groovy:groovy-all:2.3.11'
+    compile 'com.google.guava:guava:25.0-jre'
+
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+    testCompile group: 'org.awaitility', name: 'awaitility', version: '3.0.0'
+}
