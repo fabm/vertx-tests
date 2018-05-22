@@ -3,7 +3,6 @@ package pt.fabm;
 import io.reactivex.Observable;
 import io.reactivex.SingleObserver;
 import io.reactivex.functions.Consumer;
-import io.reactivex.functions.Function;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
@@ -48,7 +47,7 @@ public class DiscoveryBackendClient implements ServiceDiscoveryBackend {
     public void init(io.vertx.core.Vertx vertx, JsonObject config) {
         webClient = WebClient.create(Vertx.newInstance(vertx));
         String host = System.getProperty("discovery.server.host");
-        LOGGER.debug("get variable discovery.server.host from system:"+host);
+        LOGGER.debug("get variable discovery.server.host from system:{}",host);
         int port;
 
         String scriptsPath = System.getProperty("discovery.server.scripts.path");
@@ -62,7 +61,7 @@ public class DiscoveryBackendClient implements ServiceDiscoveryBackend {
 
         if (host != null) {
             port = Integer.parseInt(System.getProperty("discovery.server.port"));
-            LOGGER.debug("get variable discovery.server.port from system:"+port);
+            LOGGER.debug("get variable discovery.server.port from system:{}",port);
         } else {
             if (!discoveryServerPath.exists() || !discoveryServerPath.isDirectory()) {
                 LOGGER.error("discovery server path:{0} doesn''t exists",discoveryServerPath.getAbsolutePath());
