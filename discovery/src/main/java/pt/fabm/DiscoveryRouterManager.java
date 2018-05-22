@@ -4,6 +4,7 @@ import groovy.lang.Closure;
 import groovy.lang.GroovyShell;
 import groovy.lang.Script;
 import io.reactivex.Observable;
+import io.reactivex.functions.Action;
 import io.reactivex.functions.Consumer;
 import io.vertx.core.Handler;
 import io.vertx.core.http.HttpMethod;
@@ -146,12 +147,39 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
                 .handler(BodyHandler.create())
                 .handler(rc ->
                         Observable.just(rc.getBodyAsJson())
-                                .flatMap(DiscoveryRouterManager::getScript)
+                                .flatMap(DiscoveryRouterManager::loadScript)
                                 .subscribe(
                                         script -> scriptHandling(rc, script),
                                         error -> handlingError(rc, error)
                                 )
                 );
+
+        router.post("/save-script-lhr")
+                .handler(BodyHandler.create())
+                .handler(rc -> {
+
+                    Consumer<Throwable> errorHandler = e -> handlingError(rc, e);
+
+                    JsonObject jsonObject = rc.getBodyAsJson();
+                    Observable<String> fileObs = observableWithNullCheck(
+                            jsonObject.getString("file"),
+                            "file field must be not empty"
+                    ).flatMap(file -> {
+                        File currentFile = new File(AppClient.getInstance().getScriptsPath(), file);
+                        if (!currentFile.createNewFile() && !currentFile.exists()) {
+                            return Observable.error(new IllegalStateException("it's not possible to create the file"));
+                        }
+                        return Observable.just(currentFile.getAbsolutePath());
+                    });
+
+                    Observable<Buffer> bufferObs = observableWithNullCheck(
+                            jsonObject.getString("script"),
+                            "script field must be not empty"
+                    ).map(Buffer::buffer);
+
+                    writeFile(bufferObs, fileObs, errorHandler, () -> handlingResultOk(rc));
+
+                });
 
         router.get("/lhrs")
                 .handler(rc ->
@@ -195,10 +223,35 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
                                         error -> handlingError(rc, error)
                                 )
                 );
-
     }
 
-    private void scriptHandling(RoutingContext routingContext, Script script) {
+    private void writeFile(Observable<Buffer> bufferObs, Observable<String> fileObs, Consumer<Throwable> errorHandler, Action onSuccess) {
+        bufferObs.subscribe(buffer -> {
+            fileObs.subscribe(path -> {
+                Action onComplete = () -> {
+                    vertx.fileSystem().rxWriteFile(path, buffer).subscribe(onSuccess, errorHandler);
+                };
+
+                vertx.fileSystem().rxExists(path)
+                        .subscribe(exists -> {
+                            if (exists) {
+                                onComplete.run();
+                            } else {
+                                vertx.fileSystem().rxCreateFile(path).subscribe(onComplete, errorHandler);
+                            }
+                        });
+            }, errorHandler);
+        }, errorHandler);
+    }
+
+    private static <T> Observable<T> observableWithNullCheck(T value, String errorOnNull) {
+        if (value != null) {
+            return Observable.just(value);
+        }
+        return Observable.error(new IllegalStateException(errorOnNull));
+    }
+
+    private void scriptHandling(RoutingContext rc, Script script) {
         Map vars = script.getBinding().getVariables();
         List<Route> currentRoutesList = new ArrayList<>();
         Closure routeClosure = new Closure(this) {
@@ -236,11 +289,11 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
                 }
 
                 Supplier<String> methodsSupplier = () -> methodsObservable.map(Enum::name)
-                        .collect(()->new StringJoiner(","), StringJoiner::add)
+                        .collect(() -> new StringJoiner(","), StringJoiner::add)
                         .blockingGet()
                         .toString();
 
-                LOGGER.info("route[path: {}, methods:{}]",path, methodsSupplier.get());
+                LOGGER.info("route[path: {}, methods:{}]", path, methodsSupplier.get());
 
                 lrhRoute = lrhRoute.handler(lhrRoutingContext -> lhrRoutingContext.response().end(
                         Buffer.newInstance(
@@ -266,12 +319,15 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
             lrhRoutes.put(lrhId, currentRoutesList);
         }
 
-
         LOGGER.info("number of routes size:{}", router.getRoutes().size());
 
+        handlingResultOk(rc);
+    }
 
-        routingContext.response().end(
-                Buffer.newInstance(new JsonObject().put(RESULT, "ok").toBuffer())
+    private static void handlingResultOk(RoutingContext rc) {
+        LOGGER.info("Ok response");
+        rc.response().end(
+                Buffer.newInstance(new JsonObject().put("result", "ok").toBuffer())
         );
     }
 
@@ -287,12 +343,12 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
         );
     }
 
-    private static Observable<Script> getScript(JsonObject jsonObject) {
-        String path = jsonObject.getString("script");
+    private static Observable<Script> loadScript(JsonObject jsonObject) {
+        String path = jsonObject.getString("file");
         if (path == null || path.isEmpty()) {
             return Observable.error(new NoSuchElementException("Script path is empty"));
         }
-        File file = new File(path);
+        File file = new File(AppClient.getInstance().getScriptsPath(),path);
         if (!file.exists()) {
             return Observable.error(new FileNotFoundException("Path " + path + " not found"));
         }

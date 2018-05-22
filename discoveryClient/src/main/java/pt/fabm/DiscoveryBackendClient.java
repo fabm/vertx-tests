@@ -3,6 +3,7 @@ package pt.fabm;
 import io.reactivex.Observable;
 import io.reactivex.SingleObserver;
 import io.reactivex.functions.Consumer;
+import io.reactivex.functions.Function;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
@@ -47,29 +48,47 @@ public class DiscoveryBackendClient implements ServiceDiscoveryBackend {
     public void init(io.vertx.core.Vertx vertx, JsonObject config) {
         webClient = WebClient.create(Vertx.newInstance(vertx));
         String host = System.getProperty("discovery.server.host");
+        LOGGER.debug("get variable discovery.server.host from system:"+host);
         int port;
+
+        String scriptsPath = System.getProperty("discovery.server.scripts.path");
+
+        if(scriptsPath != null){
+            LOGGER.info("found scripts path in system property:{0}",scriptsPath);
+        }
+
+        String homePath = System.getProperty("user.home");
+        File discoveryServerPath = new File(homePath, ".discoveryServer");
 
         if (host != null) {
             port = Integer.parseInt(System.getProperty("discovery.server.port"));
+            LOGGER.debug("get variable discovery.server.port from system:"+port);
         } else {
-            String homePath = System.getProperty("user.home");
-            File file = new File(homePath, ".discoveryServer");
-            if (!file.exists() || !file.isDirectory()) {
+            if (!discoveryServerPath.exists() || !discoveryServerPath.isDirectory()) {
+                LOGGER.error("discovery server path:{0} doesn''t exists",discoveryServerPath.getAbsolutePath());
                 return;
             }
-            file = new File(file, "server.yml");
+            LOGGER.debug("discovery server path:{0}",discoveryServerPath.getAbsolutePath());
+
+            File serverYmlFile = new File(discoveryServerPath, "server.yml");
             Yaml yaml = new Yaml();
-            try (InputStream in = new FileInputStream(file)) {
+            try (InputStream in = new FileInputStream(serverYmlFile)) {
                 Map<String, Object> map = yaml.load(in);
                 host = String.class.cast(map.get("host"));
                 port = Integer.class.cast(map.get("port"));
+
+                if(scriptsPath == null && map.containsKey("scriptsPath")){
+                    scriptsPath = String.class.cast(map.get("scriptsPath"));
+                    LOGGER.info("found scripts path in server.yml:{0}",scriptsPath);
+                }
             } catch (IOException e) {
                 LOGGER.error(
-                        MessageFormat.format("Problem trying to read yaml at:{0}", file.getAbsolutePath()),
+                        MessageFormat.format("Problem trying to read yaml at:{0}", discoveryServerPath.getAbsolutePath()),
                         e
                 );
                 return;
             }
+            AppClient.init(discoveryServerPath, scriptsPath);
         }
 
         Record record = new Record();
@@ -189,7 +208,7 @@ public class DiscoveryBackendClient implements ServiceDiscoveryBackend {
                 .flatMapIterable(item -> item)
                 .map(JsonObject.class::cast)
                 .map(DiscoveryBackendClient::toRecord)
-                .mergeWith(Observable.just(discoveryServer))
+                .concatWith(Observable.just(discoveryServer))
                 .toList()
                 .subscribe(record -> resultHandler.handle(Future.succeededFuture(record)));
 

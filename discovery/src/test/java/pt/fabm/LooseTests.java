@@ -6,6 +6,8 @@ import groovy.lang.Script;
 import io.reactivex.Observable;
 import io.reactivex.Single;
 import io.vertx.core.http.HttpMethod;
+import io.vertx.core.json.Json;
+import io.vertx.core.json.JsonObject;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -64,7 +66,6 @@ public class LooseTests {
 
     @Test
     public void testJoin() throws InterruptedException {
-
 
         final Observable<Integer> observable = Observable.range(1, 5);
         Single<StringJoiner> stringJoiner = observable.map(Object::toString)
