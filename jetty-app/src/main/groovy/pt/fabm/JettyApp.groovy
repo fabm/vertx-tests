@@ -1,17 +1,25 @@
 package pt.fabm
 
-import org.eclipse.jetty.server.Request
-import org.eclipse.jetty.server.Server
-import org.eclipse.jetty.server.handler.AbstractHandler
+import io.reactivex.functions.Consumer
+import io.vertx.reactivex.core.Vertx
+import io.vertx.reactivex.servicediscovery.ServiceDiscovery
+import org.h2.tools.Server
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
-import javax.servlet.http.HttpServletRequest
-import javax.servlet.http.HttpServletResponse
+Logger logger = LoggerFactory.getLogger(JettyApp.class)
 
-Server server = new Server(8085)
-server.handler = { String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response ->
-    response.writer.println("stay cool ${args}->${System.getProperty('myProp')?.toString()}")
+logger.info('Start script to test database')
 
-    baseRequest.handled = true
-} as AbstractHandler
+final vertx = Vertx.vertx()
+ServiceDiscovery serviceDiscovery = ServiceDiscovery.create(vertx)
+Server server = Server.createTcpServer().start()
 
-server.start()
+serviceDiscovery.rxGetRecord({
+    boolean toFilter=it.name == 'db-jetty-app'
+    return toFilter
+},true).subscribe({
+    println(it.location)
+} as Consumer)
+
+server.stop()

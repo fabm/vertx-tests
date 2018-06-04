@@ -1,0 +1,22 @@
+[
+  {
+    "name": "db-jetty-app",
+    "type":"jdbc",
+    "location": {
+      "url": "jdbc://localhost:9042"
+    },
+    "metaData": {
+      "class": "org.h2.Driver"
+    }
+  },
+  {
+    "name": "mock-db-jetty-app",
+    "type":"jdbc",
+    "location": {
+      "url": "jdbc:mock-driver:${discoveryServer}/mock-scripts/jetty-app-jdbc.groovy"
+    },
+    "metaData": {
+      "class": "pt.fabm.MockDriver"
+    }
+  }
+]

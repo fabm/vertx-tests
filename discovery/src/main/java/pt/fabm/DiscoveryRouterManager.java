@@ -4,7 +4,8 @@ import groovy.lang.Closure;
 import groovy.lang.GroovyShell;
 import groovy.lang.Script;
 import io.reactivex.Observable;
-import io.reactivex.functions.Action;
+import io.reactivex.Single;
+import io.reactivex.disposables.Disposable;
 import io.reactivex.functions.Consumer;
 import io.vertx.core.Handler;
 import io.vertx.core.http.HttpMethod;
@@ -24,9 +25,6 @@ import org.codehaus.groovy.control.CompilationFailedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -39,6 +37,7 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
     private static final String METADATA = "metadata";
     private static final String TYPE = "type";
     private static final String RESULT = "result";
+    private static final String NAME = "name";
     private Map<String, List<Route>> lrhRoutes = new HashMap<>();
     private Map<String, Record> records = new HashMap<>();
     private Router router;
@@ -51,7 +50,8 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
     private Vertx vertx;
     private static final Logger LOGGER = LoggerFactory.getLogger(DiscoveryRouterManager.class);
 
-    public DiscoveryRouterManager(Vertx vertx) {
+    public DiscoveryRouterManager(Vertx vertx, Observable<Record> records) {
+        records.subscribe(record -> this.records.put(record.getRegistration(), record));
         this.vertx = vertx;
         LOGGER.info("start discovery server");
         init();
@@ -59,7 +59,6 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
 
     private Route createLhrRoute(String id, String subpath) {
         final String path = LHR_PATH + id + '/' + subpath;
-
         return router.route(path);
     }
 
@@ -79,6 +78,7 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
 
     private static JsonObject toJsonObject(Record record) {
         return new JsonObject()
+                .put(NAME, record.getName())
                 .put(REGISTRATION, record.getRegistration())
                 .put(LOCATION, record.getLocation())
                 .put(STATUS, record.getStatus())
@@ -107,148 +107,110 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
                 .method(HttpMethod.POST)
                 .method(HttpMethod.PUT)
                 .handler(BodyHandler.create())
-                .handler(rc ->
-                        Observable.just(rc.getBodyAsJson())
-                                .map(this::createOrUpdate)
-                                .subscribe(rc.response()::end)
-                );
+                .handler(this::routeCreateOrUpdateRecord);
 
         createRecordRoute()
                 .method(HttpMethod.GET)
-                .handler(rc ->
-                        Observable.just(rc.queryParam(REGISTRATION).get(0))
-                                .map(records::get)
-                                .map(DiscoveryRouterManager::recordToBuffer)
-                                .subscribe(rc.response()::end)
-                );
-
-        createRecordRoute()
-                .method(HttpMethod.GET)
-                .handler(rc ->
-                        Observable.just(rc.queryParam(REGISTRATION).get(0))
-                                .map(records::get)
-                                .map(DiscoveryRouterManager::recordToBuffer)
-                                .subscribe(rc.response()::end)
-                );
+                .handler(this::routeGetRecord);
 
         createRecordAllRoute()
                 .method(HttpMethod.GET)
-                .handler(rc ->
-                        Observable.just(records.values())
-                                .flatMapIterable(r -> r)
-                                .map(DiscoveryRouterManager::toJsonObject)
-                                .collect(JsonArray::new, JsonArray::add)
-                                .map(JsonArray::toBuffer)
-                                .map(Buffer::newInstance)
-                                .subscribe((Consumer<Buffer>) rc.response()::end)
-                );
+                .handler(this::routeAllRecords);
 
-        router.post("/lhr")
+        router.post("/lhr-load")
                 .handler(BodyHandler.create())
-                .handler(rc ->
-                        Observable.just(rc.getBodyAsJson())
-                                .flatMap(DiscoveryRouterManager::loadScript)
-                                .subscribe(
-                                        script -> scriptHandling(rc, script),
-                                        error -> handlingError(rc, error)
-                                )
-                );
+                .handler(this::routeLhrLoad);
 
-        router.post("/save-script-lhr")
-                .handler(BodyHandler.create())
-                .handler(rc -> {
-
-                    Consumer<Throwable> errorHandler = e -> handlingError(rc, e);
-
-                    JsonObject jsonObject = rc.getBodyAsJson();
-                    Observable<String> fileObs = observableWithNullCheck(
-                            jsonObject.getString("file"),
-                            "file field must be not empty"
-                    ).flatMap(file -> {
-                        File currentFile = new File(AppClient.getInstance().getScriptsPath(), file);
-                        if (!currentFile.createNewFile() && !currentFile.exists()) {
-                            return Observable.error(new IllegalStateException("it's not possible to create the file"));
-                        }
-                        return Observable.just(currentFile.getAbsolutePath());
-                    });
-
-                    Observable<Buffer> bufferObs = observableWithNullCheck(
-                            jsonObject.getString("script"),
-                            "script field must be not empty"
-                    ).map(Buffer::buffer);
-
-                    writeFile(bufferObs, fileObs, errorHandler, () -> handlingResultOk(rc));
-
-                });
 
         router.get("/lhrs")
-                .handler(rc ->
-                        Observable.just(lrhRoutes.entrySet())
-                                .flatMapIterable(entries -> entries)
-                                .map(entry -> {
-                                    JsonArray routes = Observable.just(entry.getValue())
-                                            .map(Object::toString)
-                                            .collect(JsonArray::new, JsonArray::add)
-                                            .blockingGet();
-                                    return new JsonObject()
-                                            .put("id", entry.getKey())
-                                            .put("routes", routes);
-                                })
-                                .collect(JsonArray::new, JsonArray::add)
-                                .map(jsonArray -> Buffer.newInstance(jsonArray.toBuffer()))
-                                .subscribe(
-                                        rc.response()::end,
-                                        error -> handlingError(rc, error)
-                                )
-                );
-
+                .handler(this::routeAllLHRs);
 
         router.delete("/lhr")
-                .handler(rc ->
-                        Observable.just(rc.queryParam("id"))
-                                .flatMap(ids -> {
-                                    if (lrhRoutes.containsKey(ids.get(0))) {
-                                        lrhRoutes.remove(ids.get(0)).forEach(Route::remove);
-                                        return Observable.just(new JsonObject().put(RESULT, "ok"));
-                                    }
-                                    return Observable
-                                            .error(
-                                                    new NoSuchElementException("no light request handler with ids=" + ids)
-                                            );
-                                })
-                                .subscribe(
-                                        jo -> rc
-                                                .response()
-                                                .end(Buffer.newInstance(jo.toBuffer())),
-                                        error -> handlingError(rc, error)
-                                )
+                .handler(this::routeDeleteLhr);
+    }
+
+    private Disposable routeCreateOrUpdateRecord(RoutingContext rc) {
+        return Observable.just(rc.getBodyAsJson())
+                .map(this::createOrUpdate)
+                .subscribe(rc.response()::end);
+    }
+
+    private Disposable routeGetRecord(RoutingContext rc) {
+        return Observable.just(rc.queryParam(REGISTRATION).get(0))
+                .map(records::get)
+                .map(DiscoveryRouterManager::recordToBuffer)
+                .subscribe(rc.response()::end);
+    }
+
+    private Disposable routeDeleteLhr(RoutingContext rc) {
+        return Observable.just(rc.queryParam("id"))
+                .flatMap(ids -> {
+                    if (lrhRoutes.containsKey(ids.get(0))) {
+                        lrhRoutes.remove(ids.get(0)).forEach(Route::remove);
+                        return Observable.just(new JsonObject().put(RESULT, "ok"));
+                    }
+                    return Observable
+                            .error(
+                                    new NoSuchElementException("no light request handler with ids=" + ids)
+                            );
+                })
+                .subscribe(
+                        jo -> rc
+                                .response()
+                                .end(Buffer.newInstance(jo.toBuffer())),
+                        error -> handlingError(rc, error)
                 );
     }
 
-    private void writeFile(Observable<Buffer> bufferObs, Observable<String> fileObs, Consumer<Throwable> errorHandler, Action onSuccess) {
-        bufferObs.subscribe(buffer -> {
-            fileObs.subscribe(path -> {
-                Action onComplete = () -> {
-                    vertx.fileSystem().rxWriteFile(path, buffer).subscribe(onSuccess, errorHandler);
-                };
-
-                vertx.fileSystem().rxExists(path)
-                        .subscribe(exists -> {
-                            if (exists) {
-                                onComplete.run();
-                            } else {
-                                vertx.fileSystem().rxCreateFile(path).subscribe(onComplete, errorHandler);
-                            }
-                        });
-            }, errorHandler);
-        }, errorHandler);
+    private static JsonObject routeToJsonObject(Route route){
+        return new JsonObject()
+                .put("path",route.getPath())
+                .put("asString",route.toString());
     }
 
-    private static <T> Observable<T> observableWithNullCheck(T value, String errorOnNull) {
-        if (value != null) {
-            return Observable.just(value);
-        }
-        return Observable.error(new IllegalStateException(errorOnNull));
+    private Disposable routeAllLHRs(RoutingContext rc) {
+        return Observable.just(lrhRoutes.entrySet())
+                .flatMapIterable(entries -> entries)
+                .flatMap((Map.Entry<String, List<Route>> entry) -> {
+                    Single<JsonArray> routes = Observable.fromIterable(entry.getValue())
+                            .map(DiscoveryRouterManager::routeToJsonObject)
+                            .collect(JsonArray::new,JsonArray::add);
+
+                    return routes.map(routesArray -> new JsonObject()
+                            .put("id", entry.getKey())
+                            .put("routes", routesArray)
+                    ).toObservable();
+                })
+                .collect(JsonArray::new, JsonArray::add)
+                .map(JsonArray::toBuffer)
+                .map(Buffer::newInstance)
+                .subscribe(
+                        rc.response()::end,
+                        error -> handlingError(rc, error)
+                );
+    }
+
+    private void routeAllRecords(RoutingContext rc) {
+        LOGGER.info("records number {}", records.size());
+        Observable.just(records.values())
+                .flatMapIterable(r -> r)
+                .map(DiscoveryRouterManager::toJsonObject)
+                .collect(JsonArray::new, JsonArray::add)
+                .map(JsonArray::toBuffer)
+                .map(Buffer::newInstance)
+                .subscribe((Consumer<Buffer>) rc.response()::end);
+    }
+
+    private Disposable routeLhrLoad(RoutingContext rc) {
+        return Observable.just(rc.getBodyAsString("UTF-8"))
+                .map(Optional::ofNullable)
+                .map(op -> op.filter(e -> !e.isEmpty()))
+                .map(Optional::get)
+                .flatMap(DiscoveryRouterManager::loadScript)
+                .subscribe(
+                        script -> scriptHandling(rc, script),
+                        error -> handlingError(rc, error)
+                );
     }
 
     private void scriptHandling(RoutingContext rc, Script script) {
@@ -327,7 +289,7 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
     private static void handlingResultOk(RoutingContext rc) {
         LOGGER.info("Ok response");
         rc.response().end(
-                Buffer.newInstance(new JsonObject().put("result", "ok").toBuffer())
+                Buffer.newInstance(new JsonObject().put(RESULT, "ok").toBuffer())
         );
     }
 
@@ -343,19 +305,20 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
         );
     }
 
-    private static Observable<Script> loadScript(JsonObject jsonObject) {
-        String path = jsonObject.getString("file");
-        if (path == null || path.isEmpty()) {
-            return Observable.error(new NoSuchElementException("Script path is empty"));
-        }
-        File file = new File(AppClient.getInstance().getScriptsPath(),path);
-        if (!file.exists()) {
-            return Observable.error(new FileNotFoundException("Path " + path + " not found"));
-        }
+    private static Observable<Script> loadScript(String content) {
         try {
             GroovyShell groovyShell = new GroovyShell();
-            return Observable.just(groovyShell.parse(file));
-        } catch (CompilationFailedException | IOException e) {
+            return Observable.just(groovyShell.parse(content));
+        } catch (CompilationFailedException e) {
+            return Observable.error(e);
+        }
+    }
+
+    private static Observable<Script> loadScript(Buffer buffer) {
+        try {
+            GroovyShell groovyShell = new GroovyShell();
+            return Observable.just(groovyShell.parse(buffer.toString()));
+        } catch (CompilationFailedException e) {
             return Observable.error(e);
         }
     }
