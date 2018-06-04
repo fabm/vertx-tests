@@ -1,5 +1,6 @@
 package pt.fabm;
 
+import com.google.common.collect.ImmutableMap;
 import groovy.lang.Closure;
 import groovy.lang.GroovyShell;
 import groovy.lang.Script;
@@ -19,8 +20,6 @@ import io.vertx.reactivex.ext.web.Route;
 import io.vertx.reactivex.ext.web.Router;
 import io.vertx.reactivex.ext.web.RoutingContext;
 import io.vertx.reactivex.ext.web.handler.BodyHandler;
-import io.vertx.servicediscovery.Record;
-import io.vertx.servicediscovery.Status;
 import org.codehaus.groovy.control.CompilationFailedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,7 +38,7 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
     private static final String RESULT = "result";
     private static final String NAME = "name";
     private Map<String, List<Route>> lrhRoutes = new HashMap<>();
-    private Map<String, Record> records = new HashMap<>();
+    private Map<String, JsonObject> records = new HashMap<>();
     private Router router;
     private static final String LHR_PATH = Stream
             .of("lhr", "action")
@@ -50,8 +49,7 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
     private Vertx vertx;
     private static final Logger LOGGER = LoggerFactory.getLogger(DiscoveryRouterManager.class);
 
-    public DiscoveryRouterManager(Vertx vertx, Observable<Record> records) {
-        records.subscribe(record -> this.records.put(record.getRegistration(), record));
+    public DiscoveryRouterManager(Vertx vertx) {
         this.vertx = vertx;
         LOGGER.info("start discovery server");
         init();
@@ -76,26 +74,19 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
         return Buffer.newInstance(new JsonObject().put(RESULT, "ok").toBuffer());
     }
 
-    private static JsonObject toJsonObject(Record record) {
-        return new JsonObject()
-                .put(NAME, record.getName())
-                .put(REGISTRATION, record.getRegistration())
-                .put(LOCATION, record.getLocation())
-                .put(STATUS, record.getStatus())
-                .put(METADATA, record.getMetadata())
-                .put(TYPE, record.getType());
-    }
-
     private Buffer createOrUpdate(JsonObject jsonObject) {
-        Record record = new Record();
-        record.setLocation(jsonObject.getJsonObject(LOCATION));
-        record.setMetadata(jsonObject.getJsonObject(METADATA));
-        record.setType(jsonObject.getString(TYPE));
-        record.setName(jsonObject.getString("name"));
-        record.setStatus(Status.valueOf(jsonObject.getString(STATUS)));
-        record.setRegistration(jsonObject.getString(REGISTRATION));
+        ImmutableMap<String, Object> map = ImmutableMap.<String, Object>builder()
+                .put(LOCATION, jsonObject.getJsonObject(LOCATION))
+                .put(METADATA, jsonObject.getJsonObject(METADATA))
+                .put(TYPE, jsonObject.getString(TYPE))
+                .put(NAME, jsonObject.getString(NAME))
+                .put(STATUS, jsonObject.getString(STATUS))
+                .put(REGISTRATION, jsonObject.getString(REGISTRATION))
+                .build();
 
-        records.put(jsonObject.getString(REGISTRATION), record);
+        map.forEach((k,v)->Optional.ofNullable(v).orElseThrow(()->new IllegalStateException("Null not allowed in:"+k)));
+
+        records.put(jsonObject.getString(REGISTRATION), jsonObject);
 
         return okResponse();
     }
@@ -138,7 +129,8 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
     private Disposable routeGetRecord(RoutingContext rc) {
         return Observable.just(rc.queryParam(REGISTRATION).get(0))
                 .map(records::get)
-                .map(DiscoveryRouterManager::recordToBuffer)
+                .map(JsonObject::toBuffer)
+                .map(Buffer::newInstance)
                 .subscribe(rc.response()::end);
     }
 
@@ -162,10 +154,10 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
                 );
     }
 
-    private static JsonObject routeToJsonObject(Route route){
+    private static JsonObject routeToJsonObject(Route route) {
         return new JsonObject()
-                .put("path",route.getPath())
-                .put("asString",route.toString());
+                .put("path", route.getPath())
+                .put("asString", route.toString());
     }
 
     private Disposable routeAllLHRs(RoutingContext rc) {
@@ -174,7 +166,7 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
                 .flatMap((Map.Entry<String, List<Route>> entry) -> {
                     Single<JsonArray> routes = Observable.fromIterable(entry.getValue())
                             .map(DiscoveryRouterManager::routeToJsonObject)
-                            .collect(JsonArray::new,JsonArray::add);
+                            .collect(JsonArray::new, JsonArray::add);
 
                     return routes.map(routesArray -> new JsonObject()
                             .put("id", entry.getKey())
@@ -194,7 +186,6 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
         LOGGER.info("records number {}", records.size());
         Observable.just(records.values())
                 .flatMapIterable(r -> r)
-                .map(DiscoveryRouterManager::toJsonObject)
                 .collect(JsonArray::new, JsonArray::add)
                 .map(JsonArray::toBuffer)
                 .map(Buffer::newInstance)
@@ -321,10 +312,6 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
         } catch (CompilationFailedException e) {
             return Observable.error(e);
         }
-    }
-
-    private static Buffer recordToBuffer(Record record) {
-        return Buffer.newInstance(toJsonObject(record).toBuffer());
     }
 
     @Override

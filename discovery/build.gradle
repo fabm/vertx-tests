@@ -17,7 +17,13 @@ repositories {
 dependencies {
     def vertxVersion = '3.5.1'
 
-    compile project(':discoveryClient')
+    compile 'ch.qos.logback:logback-classic:1.2.3'
+    compile 'ch.qos.logback:logback-core:1.2.3'
+    compile 'org.slf4j:slf4j-api:1.7.18'
+
+    compile "io.vertx:vertx-rx-java2:$vertxVersion"
+    compile "io.vertx:vertx-web-client:$vertxVersion"
+    compile group: 'com.google.guava', name: 'guava', version: '25.1-jre'
     compile "io.vertx:vertx-web:$vertxVersion"
     compile 'org.codehaus.groovy:groovy-all:2.3.11'
     testCompile group: 'junit', name: 'junit', version: '4.12'

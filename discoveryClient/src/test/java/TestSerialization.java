@@ -1,57 +1,15 @@
 import io.reactivex.*;
-import io.vertx.core.json.JsonArray;
 import io.vertx.reactivex.MaybeHelper;
 import io.vertx.reactivex.core.Vertx;
-import io.vertx.reactivex.core.buffer.Buffer;
-import io.vertx.servicediscovery.Record;
 import org.junit.Assert;
 import org.junit.Test;
-import pt.fabm.AppClient;
 
-import java.io.File;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.IntStream;
 
 public class TestSerialization {
-    @Test
-    public void serialisationRecords() {
-
-        Vertx vertx = Vertx.vertx();
-
-        Single<List<Record>> singleRecordList = vertx.fileSystem().rxReadFile(getClass().getResource("/initClients.json").getFile())
-                .toObservable()
-                .map(Buffer::getDelegate)
-                .map(JsonArray::new)
-                .flatMapIterable(it ->
-                        () -> IntStream.range(0, it.size()).mapToObj(it::getJsonObject).iterator()
-                )
-                .map(AppClient::toRecord)
-                .toList();
-
-        List<Record> records = singleRecordList.blockingGet();
-        Assert.assertEquals(2, records.size());
-
-        Record record = records.get(0);
-        Assert.assertEquals("db-jetty-app", record.getName());
-        Assert.assertEquals("jdbc://localhost:9042", record.getLocation().getString("url"));
-        Assert.assertEquals("org.h2.Driver", record.getMetadata().getString("class"));
-        Assert.assertEquals("jdbc", record.getType());
-
-        record = records.get(1);
-        Assert.assertEquals("mock-db-jetty-app", record.getName());
-        Assert.assertEquals("jdbc:mock-driver:${discoveryServer}/mock-scripts/jetty-app-jdbc.groovy", record.getLocation().getString("url"));
-        Assert.assertEquals("pt.fabm.MockDriver", record.getMetadata().getString("class"));
-        Assert.assertEquals("jdbc", record.getType());
-
-
-    }
 
     @Test
     public void testCache() {
-        Vertx vertx = Vertx.vertx();
 
         AtomicInteger atomicInteger = new AtomicInteger();
         Single<String> single = Single.<String>create(source -> {
