@@ -70,10 +70,6 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
                 .produces("application/json");
     }
 
-    private Buffer okResponse() {
-        return Buffer.newInstance(new JsonObject().put(RESULT, "ok").toBuffer());
-    }
-
     private Buffer createOrUpdate(JsonObject jsonObject) {
         ImmutableMap<String, Object> map = ImmutableMap.<String, Object>builder()
                 .put(LOCATION, jsonObject.getJsonObject(LOCATION))
@@ -84,11 +80,11 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
                 .put(REGISTRATION, jsonObject.getString(REGISTRATION))
                 .build();
 
-        map.forEach((k,v)->Optional.ofNullable(v).orElseThrow(()->new IllegalStateException("Null not allowed in:"+k)));
+        map.forEach((k, v) -> Optional.ofNullable(v).orElseThrow(() -> new IllegalStateException("Null not allowed in:" + k)));
 
         records.put(jsonObject.getString(REGISTRATION), jsonObject);
 
-        return okResponse();
+        return Buffer.newInstance(jsonObject.toBuffer());
     }
 
     private void init() {

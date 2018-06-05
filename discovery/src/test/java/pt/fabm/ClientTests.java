@@ -1,32 +1,53 @@
 package pt.fabm;
 
 
-import io.reactivex.Single;
-import io.vertx.core.json.JsonArray;
-import io.vertx.ext.web.client.WebClientOptions;
+import io.vertx.core.json.JsonObject;
 import io.vertx.reactivex.core.Vertx;
-import io.vertx.reactivex.ext.web.client.HttpResponse;
-import io.vertx.reactivex.ext.web.client.WebClient;
+import io.vertx.reactivex.servicediscovery.ServiceDiscovery;
+import io.vertx.servicediscovery.Record;
+import io.vertx.servicediscovery.ServiceDiscoveryOptions;
+import io.vertx.servicediscovery.Status;
+import io.vertx.servicediscovery.types.HttpEndpoint;
+import org.junit.Assert;
 import org.junit.Test;
 
 public class ClientTests {
     @Test
-    public void testServer() throws InterruptedException {
+    public void testServer() {
 
         Vertx vertx = Vertx.vertx();
 
-        ServerDiscovery.main(new String[]{"localhost", "7000"});
+        new ServerDiscovery().init(vertx, "localhost", 7000).blockingAwait();
 
-        WebClient webClient = WebClient.create(
-                vertx,
-                new WebClientOptions().setDefaultPort(7000).setDefaultHost("localhost")
+        ServiceDiscovery serviceDiscovery = ServiceDiscovery.create(vertx, new ServiceDiscoveryOptions()
+                .setBackendConfiguration(new JsonObject()
+                        .put("server", new JsonObject()
+                                .put("host", "localhost")
+                                .put("port", 7000)
+                        )
+                )
         );
 
-        Single<JsonArray> response = webClient.get("/record/all")
-                .rxSend()
-                .map(HttpResponse::bodyAsJsonArray);
+        Record recordExpected = new Record();
+        recordExpected.setName("record-name");
+        recordExpected.setRegistration("reg");
+        recordExpected.setStatus(Status.OUT_OF_SERVICE);
+        recordExpected.setLocation(new JsonObject()
+                .put("host", "localhost")
+                .put("port", "3000")
+        );
+        recordExpected.setType(HttpEndpoint.TYPE);
 
-        System.out.println(response.blockingGet().size());
+        serviceDiscovery.rxPublish(recordExpected).toCompletable().blockingAwait();
+        Record recordReturned = serviceDiscovery.rxGetRecord(r -> true, true).blockingGet();
+
+        Assert.assertEquals(recordExpected, recordExpected);
+
+        recordExpected.setStatus(Status.UP);
+        serviceDiscovery.rxUpdate(recordExpected).toCompletable().blockingAwait();
+        recordReturned = serviceDiscovery.rxGetRecord(r->true,true).blockingGet();
+
+        Assert.assertEquals(recordExpected,recordReturned);
     }
 
 }

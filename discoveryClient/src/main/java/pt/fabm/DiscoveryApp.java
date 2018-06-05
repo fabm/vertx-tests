@@ -31,6 +31,7 @@ public abstract class DiscoveryApp {
     public static final String PATH_SERVER_DISCOVERY_REPLACER = "${discoveryServer}";
     protected static final Logger LOGGER = LoggerFactory.getLogger(DiscoveryApp.class);
     public static final String SERVER_DISCOVERY = "serverDiscovery";
+    private static final String NAME = "name";
     protected Vertx vertx;
     protected ServiceDiscovery serviceDiscovery;
     protected Observable<Record> records;
@@ -111,6 +112,7 @@ public abstract class DiscoveryApp {
         return new JsonObject()
                 .put(REGISTRATION, record.getRegistration())
                 .put(TYPE, record.getType())
+                .put(NAME, record.getName())
                 .put(LOCATION, record.getLocation())
                 .put(METADATA, record.getMetadata())
                 .put(STATUS, record.getStatus());
