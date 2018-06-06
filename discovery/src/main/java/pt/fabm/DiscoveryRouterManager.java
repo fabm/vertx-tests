@@ -203,57 +203,7 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
     private void scriptHandling(RoutingContext rc, Script script) {
         Map vars = script.getBinding().getVariables();
         List<Route> currentRoutesList = new ArrayList<>();
-        Closure routeClosure = new Closure(this) {
-
-            public Object doCall(Object... args) {
-                String path = String.class.cast(args[0]);
-                if (path.startsWith("/")) {
-                    path = path.substring(1);
-                }
-                final Closure closure;
-                Observable<HttpMethod> methodsObservable;
-                if (args.length == 3) {
-
-                    final Observable<Object> listObservable = Observable.just(Map.class.cast(args[1]))
-                            .map(map -> map.get("methods"));
-
-                    final Observable<String> stringObservable = listObservable
-                            .cast(List.class)
-                            .flatMapIterable(it -> it)
-                            .cast(String.class);
-
-                    methodsObservable = stringObservable
-                            .map(strMethod -> HttpMethod.valueOf(strMethod.toUpperCase()));
-
-                    closure = Closure.class.cast(args[2]);
-                } else {
-                    methodsObservable = Observable.fromArray(HttpMethod.GET);
-                    closure = Closure.class.cast(args[1]);
-                }
-
-                Route lrhRoute = createLhrRoute(String.class.cast(vars.get("id")), path);
-
-                for (HttpMethod method : methodsObservable.blockingIterable()) {
-                    lrhRoute = lrhRoute.method(method);
-                }
-
-                Supplier<String> methodsSupplier = () -> methodsObservable.map(Enum::name)
-                        .collect(() -> new StringJoiner(","), StringJoiner::add)
-                        .blockingGet()
-                        .toString();
-
-                LOGGER.info("route[path: {}, methods:{}]", path, methodsSupplier.get());
-
-                lrhRoute = lrhRoute.handler(lhrRoutingContext -> lhrRoutingContext.response().end(
-                        Buffer.newInstance(
-                                Json.encodeToBuffer(closure.call(lhrRoutingContext))
-                        )
-                ));
-
-                currentRoutesList.add(lrhRoute);
-                return null;
-            }
-        };
+        Closure routeClosure = getClosure(vars, currentRoutesList);
 
         vars.put("routeJson", routeClosure);
 
@@ -271,6 +221,60 @@ public class DiscoveryRouterManager implements Handler<HttpServerRequest> {
         LOGGER.info("number of routes size:{}", router.getRoutes().size());
 
         handlingResultOk(rc);
+    }
+
+    private Closure getClosure(Map vars, List<Route> currentRoutesList) {
+        return new Closure(this) {
+
+                public Object doCall(Object... args) {
+                    String path = String.class.cast(args[0]);
+                    if (path.startsWith("/")) {
+                        path = path.substring(1);
+                    }
+                    final Closure closure;
+                    Observable<HttpMethod> methodsObservable;
+                    if (args.length == 3) {
+
+                        final Observable<Object> listObservable = Observable.just(Map.class.cast(args[1]))
+                                .map(map -> map.get("methods"));
+
+                        final Observable<String> stringObservable = listObservable
+                                .cast(List.class)
+                                .flatMapIterable(it -> it)
+                                .cast(String.class);
+
+                        methodsObservable = stringObservable
+                                .map(strMethod -> HttpMethod.valueOf(strMethod.toUpperCase()));
+
+                        closure = Closure.class.cast(args[2]);
+                    } else {
+                        methodsObservable = Observable.fromArray(HttpMethod.GET);
+                        closure = Closure.class.cast(args[1]);
+                    }
+
+                    Route lrhRoute = createLhrRoute(String.class.cast(vars.get("id")), path);
+
+                    for (HttpMethod method : methodsObservable.blockingIterable()) {
+                        lrhRoute = lrhRoute.method(method);
+                    }
+
+                    Supplier<String> methodsSupplier = () -> methodsObservable.map(Enum::name)
+                            .collect(() -> new StringJoiner(","), StringJoiner::add)
+                            .blockingGet()
+                            .toString();
+
+                    LOGGER.info("route[path: {}, methods:{}]", path, methodsSupplier.get());
+
+                    lrhRoute = lrhRoute.handler(lhrRoutingContext -> lhrRoutingContext.response().end(
+                            Buffer.newInstance(
+                                    Json.encodeToBuffer(closure.call(lhrRoutingContext))
+                            )
+                    ));
+
+                    currentRoutesList.add(lrhRoute);
+                    return null;
+                }
+            };
     }
 
     private static void handlingResultOk(RoutingContext rc) {

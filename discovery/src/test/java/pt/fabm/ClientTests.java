@@ -1,6 +1,7 @@
 package pt.fabm;
 
 
+import io.vertx.core.DeploymentOptions;
 import io.vertx.core.json.JsonObject;
 import io.vertx.reactivex.core.Vertx;
 import io.vertx.reactivex.servicediscovery.ServiceDiscovery;
@@ -17,15 +18,17 @@ public class ClientTests {
 
         Vertx vertx = Vertx.vertx();
 
-        new ServerDiscovery().init(vertx, "localhost", 7000).blockingAwait();
+        DeploymentOptions deploymentOptions = new DeploymentOptions();
+        JsonObject config = new JsonObject()
+                .put("host","localhost")
+                .put("port",7000);
+
+        deploymentOptions.setConfig(config);
+        String idServerDiscovery = vertx.rxDeployVerticle(ServerDiscovery.class.getName(),deploymentOptions)
+                .blockingGet();
 
         ServiceDiscovery serviceDiscovery = ServiceDiscovery.create(vertx, new ServiceDiscoveryOptions()
-                .setBackendConfiguration(new JsonObject()
-                        .put("server", new JsonObject()
-                                .put("host", "localhost")
-                                .put("port", 7000)
-                        )
-                )
+                .setBackendConfiguration(new JsonObject().put("server", config))
         );
 
         Record recordExpected = new Record();
@@ -39,15 +42,17 @@ public class ClientTests {
         recordExpected.setType(HttpEndpoint.TYPE);
 
         serviceDiscovery.rxPublish(recordExpected).toCompletable().blockingAwait();
-        Record recordReturned = serviceDiscovery.rxGetRecord(r -> true, true).blockingGet();
+        Record recordReturned1 = serviceDiscovery.rxGetRecord(r -> true, true).blockingGet();
 
         Assert.assertEquals(recordExpected, recordExpected);
 
         recordExpected.setStatus(Status.UP);
         serviceDiscovery.rxUpdate(recordExpected).toCompletable().blockingAwait();
-        recordReturned = serviceDiscovery.rxGetRecord(r->true,true).blockingGet();
+        Record recordReturned2 = serviceDiscovery.rxGetRecord(r -> true, true).blockingGet();
 
-        Assert.assertEquals(recordExpected,recordReturned);
+        Assert.assertEquals(recordExpected, recordReturned2);
+
+
     }
 
 }
